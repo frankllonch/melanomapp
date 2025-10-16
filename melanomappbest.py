@@ -62,7 +62,7 @@ def load_model(model_choice):
         model.load_state_dict(torch.load("melanoma_model.pth", map_location=device))
     else:
         model = CustomCNN()
-        model.load_state_dict(torch.load("melanoma_model3.pth", map_location=device))
+        model.load_state_dict(torch.load("melanoma_model4.pth", map_location=device))
     model.to(device)
     model.eval()
     return model
