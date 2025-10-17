@@ -7,6 +7,7 @@ from PIL import Image, ImageEnhance
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
+import plotly.express as px 
 
 # ===========================
 # 1️⃣ DEVICE
@@ -199,21 +200,18 @@ st.markdown(get_theme_css(dark_mode), unsafe_allow_html=True)
 model = load_model(model_choice)
 
 # --- File uploader ---
-uploaded_files = st.file_uploader("Choose image(s)...", type=["jpg","jpeg","png"], accept_multiple_files=True)
-
-# --- Prediction tracking ---
-benign_count, malignant_count = 0, 0
+uploaded_files = st.file_uploader("Choose image(s)...", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
 
 if uploaded_files:
-    st.subheader("📊 Results Overview")
+    benign_count, malignant_count = 0, 0
 
+    # --- Predict all first ---
     for uploaded_file in uploaded_files:
         image = Image.open(uploaded_file).convert("RGB")
 
         # Apply brightness/contrast
         image = ImageEnhance.Brightness(image).enhance(brightness)
         image = ImageEnhance.Contrast(image).enhance(contrast)
-        st.image(image, caption=f"Uploaded: {uploaded_file.name}", use_container_width=True)
 
         # Preprocess
         img_t = transform(image).unsqueeze(0).to(device)
@@ -226,40 +224,61 @@ if uploaded_files:
             malignant_prob = probs[0][1].item()
 
         prediction = "Malignant" if malignant_prob >= threshold else "Benign"
-        color = "🔴" if prediction == "Malignant" else "🟢"
-        st.subheader(f"{prediction} {color}")
-        st.write(f"Malignant probability: {malignant_prob:.2%} | Threshold: {threshold:.2f}")
-
-        # Update counts
         if prediction == "Malignant":
             malignant_count += 1
         else:
             benign_count += 1
+
+    # --- Summary (displayed at the top) ---
+    total = benign_count + malignant_count
+    st.markdown("---")
+    st.subheader("🧾 Summary")
+    st.write(f"**Total images:** {total}")
+    st.write(f"🟢 Benign: {benign_count}  |  🔴 Malignant: {malignant_count}")
+    st.write(f"**Malignant percentage:** {(malignant_count / total * 100):.1f}%")
+
+    # --- Pie chart (now works) ---
+    fig = px.pie(
+        names=["Benign", "Malignant"],
+        values=[benign_count, malignant_count],
+        color=["Benign", "Malignant"],
+        color_discrete_map={"Benign": "green", "Malignant": "red"},
+        title="Classification Distribution"
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- Then display individual results ---
+    st.markdown("### 🩻 Individual Predictions")
+
+    for uploaded_file in uploaded_files:
+        image = Image.open(uploaded_file).convert("RGB")
+
+        image = ImageEnhance.Brightness(image).enhance(brightness)
+        image = ImageEnhance.Contrast(image).enhance(contrast)
+        st.image(image, caption=f"Uploaded: {uploaded_file.name}", use_container_width=True)
+
+        img_t = transform(image).unsqueeze(0).to(device)
+        img_t.requires_grad_()
+
+        with torch.no_grad():
+            outputs = model(img_t)
+            probs = F.softmax(outputs, dim=1)
+            malignant_prob = probs[0][1].item()
+
+        prediction = "Malignant" if malignant_prob >= threshold else "Benign"
+        color = "🔴" if prediction == "Malignant" else "🟢"
+
+        st.subheader(f"{prediction} {color}")
+        st.write(f"Malignant probability: {malignant_prob:.2%} | Threshold: {threshold:.2f}")
 
         # Confidence bar
         st.bar_chart({"Benign": float(probs[0][0]), "Malignant": float(probs[0][1])})
 
         # Grad-CAM
         heatmap = grad_cam(model, img_t, class_idx=None)
-        heatmap = cv2.resize(heatmap, (224,224))
+        heatmap = cv2.resize(heatmap, (224, 224))
         heatmap_img = np.uint8(255 * heatmap)
         heatmap_img = cv2.applyColorMap(heatmap_img, cv2.COLORMAP_JET)
-        img_np = np.array(image.resize((224,224)))
+        img_np = np.array(image.resize((224, 224)))
         superimposed_img = cv2.addWeighted(img_np, 0.6, heatmap_img, 0.4, 0)
         st.image(superimposed_img, caption="Grad-CAM Heatmap", use_container_width=True)
-
-    # --- Overall results ---
-    total = benign_count + malignant_count
-    st.markdown("---")
-    st.subheader("🧾 Summary")
-    st.write(f"**Total images:** {total}")
-    st.write(f"🟢 Benign: {benign_count}  |  🔴 Malignant: {malignant_count}")
-
-    # --- Pie chart ---
-    st.plotly_chart(px.pie(
-        names=["Benign", "Malignant"],
-        values=[benign_count, malignant_count],
-        color=["Benign", "Malignant"],
-        color_discrete_map={"Benign": "green", "Malignant": "red"},
-        title="Classification Distribution"
-    ), use_container_width=True)
