@@ -180,7 +180,6 @@ def get_theme_css(dark_mode=True):
         header{background-color:#0e1117 !important;}
         #MainMenu, footer{visibility:hidden;}
         .stButton>button{background-color:#1e1e1e;color:#e0e0e0;border:1px solid #333;}
-        .css-1lsmgbg.e1tzin5v3,.css-10trblm.e1tzin5v3,.css-17x69mk.e16nr0p31{color:#e0e0e0 !important;}
         </style>
         """
     else:
@@ -202,9 +201,15 @@ model = load_model(model_choice)
 # --- File uploader ---
 uploaded_files = st.file_uploader("Choose image(s)...", type=["jpg","jpeg","png"], accept_multiple_files=True)
 
+# --- Prediction tracking ---
+benign_count, malignant_count = 0, 0
+
 if uploaded_files:
+    st.subheader("📊 Results Overview")
+
     for uploaded_file in uploaded_files:
         image = Image.open(uploaded_file).convert("RGB")
+
         # Apply brightness/contrast
         image = ImageEnhance.Brightness(image).enhance(brightness)
         image = ImageEnhance.Contrast(image).enhance(contrast)
@@ -221,9 +226,15 @@ if uploaded_files:
             malignant_prob = probs[0][1].item()
 
         prediction = "Malignant" if malignant_prob >= threshold else "Benign"
-        color = "🔴" if prediction=="Malignant" else "🟢"
+        color = "🔴" if prediction == "Malignant" else "🟢"
         st.subheader(f"{prediction} {color}")
         st.write(f"Malignant probability: {malignant_prob:.2%} | Threshold: {threshold:.2f}")
+
+        # Update counts
+        if prediction == "Malignant":
+            malignant_count += 1
+        else:
+            benign_count += 1
 
         # Confidence bar
         st.bar_chart({"Benign": float(probs[0][0]), "Malignant": float(probs[0][1])})
@@ -231,8 +242,24 @@ if uploaded_files:
         # Grad-CAM
         heatmap = grad_cam(model, img_t, class_idx=None)
         heatmap = cv2.resize(heatmap, (224,224))
-        heatmap_img = np.uint8(255*heatmap)
+        heatmap_img = np.uint8(255 * heatmap)
         heatmap_img = cv2.applyColorMap(heatmap_img, cv2.COLORMAP_JET)
         img_np = np.array(image.resize((224,224)))
         superimposed_img = cv2.addWeighted(img_np, 0.6, heatmap_img, 0.4, 0)
         st.image(superimposed_img, caption="Grad-CAM Heatmap", use_container_width=True)
+
+    # --- Overall results ---
+    total = benign_count + malignant_count
+    st.markdown("---")
+    st.subheader("🧾 Summary")
+    st.write(f"**Total images:** {total}")
+    st.write(f"🟢 Benign: {benign_count}  |  🔴 Malignant: {malignant_count}")
+
+    # --- Pie chart ---
+    st.plotly_chart(px.pie(
+        names=["Benign", "Malignant"],
+        values=[benign_count, malignant_count],
+        color=["Benign", "Malignant"],
+        color_discrete_map={"Benign": "green", "Malignant": "red"},
+        title="Classification Distribution"
+    ), use_container_width=True)
