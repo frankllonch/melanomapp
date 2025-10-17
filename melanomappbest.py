@@ -19,33 +19,70 @@ device = torch.device("mps" if torch.backends.mps.is_available() else "cpu")
 class CustomCNN(nn.Module):
     def __init__(self, num_classes=2):
         super(CustomCNN, self).__init__()
-        self.conv1 = nn.Conv2d(3, 32, 3, padding=1)
+
+        # ---- Block 1 ----
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, padding=1)
         self.bn1 = nn.BatchNorm2d(32)
+        self.conv1_2 = nn.Conv2d(32, 32, kernel_size=3, padding=1)
+        self.bn1_2 = nn.BatchNorm2d(32)
         self.pool1 = nn.MaxPool2d(2, 2)
         self.drop1 = nn.Dropout(0.2)
 
-        self.conv2 = nn.Conv2d(32, 64, 3, padding=1)
+        # Projection for residual
+        self.res1 = nn.Conv2d(3, 32, kernel_size=1)  # match channels
+
+        # ---- Block 2 ----
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
         self.bn2 = nn.BatchNorm2d(64)
+        self.conv2_2 = nn.Conv2d(64, 64, kernel_size=3, padding=1)
+        self.bn2_2 = nn.BatchNorm2d(64)
         self.pool2 = nn.MaxPool2d(2, 2)
         self.drop2 = nn.Dropout(0.3)
 
-        self.conv3 = nn.Conv2d(64, 128, 3, padding=1)
+        self.res2 = nn.Conv2d(32, 64, kernel_size=1)
+
+        # ---- Block 3 ----
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, padding=1)
         self.bn3 = nn.BatchNorm2d(128)
+        self.conv3_2 = nn.Conv2d(128, 128, kernel_size=3, padding=1)
+        self.bn3_2 = nn.BatchNorm2d(128)
         self.pool3 = nn.MaxPool2d(2, 2)
         self.drop3 = nn.Dropout(0.4)
 
+        self.res3 = nn.Conv2d(64, 128, kernel_size=1)
+
+        # ---- Fully connected ----
         self.fc1 = nn.Linear(128 * 28 * 28, 256)
         self.bn4 = nn.BatchNorm1d(256)
         self.drop4 = nn.Dropout(0.5)
         self.fc2 = nn.Linear(256, num_classes)
 
     def forward(self, x):
-        x = self.pool1(F.relu(self.bn1(self.conv1(x))))
+        # ---- Block 1 ----
+        residual = self.res1(x)
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn1_2(self.conv1_2(x)))
+        x = x + residual   # <-- out-of-place addition
+        x = self.pool1(x)
         x = self.drop1(x)
-        x = self.pool2(F.relu(self.bn2(self.conv2(x))))
+
+        # ---- Block 2 ----
+        residual = self.res2(x)
+        x = F.relu(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn2_2(self.conv2_2(x)))
+        x = x + residual
+        x = self.pool2(x)
         x = self.drop2(x)
-        x = self.pool3(F.relu(self.bn3(self.conv3(x))))
+
+        # ---- Block 3 ----
+        residual = self.res3(x)
+        x = F.relu(self.bn3(self.conv3(x)))
+        x = F.relu(self.bn3_2(self.conv3_2(x)))
+        x = x + residual
+        x = self.pool3(x)
         x = self.drop3(x)
+
+        # ---- Fully connected ----
         x = torch.flatten(x, 1)
         x = F.relu(self.bn4(self.fc1(x)))
         x = self.drop4(x)
